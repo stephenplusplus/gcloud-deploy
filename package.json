@@ -1,0 +1,35 @@
+{
+  "name": "gcloud-deploy",
+  "version": "0.0.0",
+  "description": "Quickly deploy a Node.js project on Google Compute Engine",
+  "main": "index.js",
+  "bin": {
+    "gcloud-deploy": "./cli.js"
+  },
+  "keywords": [
+    "google",
+    "google cloud",
+    "google cloud platform",
+    "compute engine",
+    "google compute engine",
+    "container",
+    "deploy",
+    "vm",
+    "virtual machine",
+    "instance"
+  ],
+  "author": "Stephen Sawchuk <sawchuk@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "archiver": "^0.15.1",
+    "async": "^1.4.2",
+    "gcloud": "^0.23.0",
+    "multiline": "^1.0.2"
+  },
+  "devDependencies": {
+    "standard": "^5.3.1"
+  },
+  "gcloud": {
+    "projectId": "nth-circlet-705"
+  }
+}
