@@ -126,7 +126,6 @@ The URL to your project. If your app listens on port 80, you can get right to it
 
 Desperately seeking help with the following tasks:
 
-  - Ignore `node_modules` directory from created tar
   - Customization of Node.js version to run
   - Customization of VMs to create
   - Allow VMs to be re-used
