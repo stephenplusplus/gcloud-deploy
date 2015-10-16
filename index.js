@@ -3,14 +3,20 @@
 var archiver = require('archiver')
 var async = require('async')
 var EE = require('events').EventEmitter
+var exec = require('methmeth')
+var format = require('string-format-obj')
 var gcloud = require('gcloud')
 var multiline = require('multiline')
 var path = require('path')
+var split = require('split-array-stream')
+var slug = require('slug')
+var through = require('through2')
 
 module.exports = function (pkgRoot) {
   pkgRoot = pkgRoot || process.cwd()
 
   var ee = new EE()
+
   var pkg = require(path.join(pkgRoot, 'package.json'))
   var gcloudConfig = pkg.gcloud || {}
 
@@ -18,11 +24,24 @@ module.exports = function (pkgRoot) {
   var gcs = gcloudInstance.storage()
   var gce = gcloudInstance.compute()
 
-  var tarFile // populated later after it's created so that it can be deleted
+  async.waterfall([
+    createTarStream,
+    uploadTar,
+    createVM,
+    startVM
+  ], function (err) {
+    if (err) return ee.emit('error', err)
+    ee.removeAllListeners()
+  })
 
-  async.waterfall([uploadTar, createVM, startVM], onComplete)
+  function createTarStream (callback) {
+    var tarStream = archiver.create('tar', { gzip: true })
+    tarStream.bulk([{ expand: true, cwd: pkgRoot, src: ['**', '!node_modules/**'] }])
+    tarStream.finalize()
+    callback(null, tarStream)
+  }
 
-  function uploadTar (callback) {
+  function uploadTar (tarStream, callback) {
     var bucketName = gcloudConfig.projectId + '-gcloud-deploy-tars'
     var bucket = gcs.bucket(bucketName)
     var tarFilename = Date.now() + '.tar'
@@ -31,13 +50,9 @@ module.exports = function (pkgRoot) {
       if (err && err.code !== 409) return callback(err)
       ee.emit('bucket', bucket)
 
-      tarFile = bucket.file(tarFilename)
+      var tarFile = bucket.file(tarFilename)
 
-      var tar = archiver.create('tar', { gzip: true })
-      tar.directory(pkgRoot, false)
-      tar.finalize()
-
-      tar.pipe(tarFile.createWriteStream())
+      tarStream.pipe(tarFile.createWriteStream({ gzip: true }))
         .on('error', callback)
         .on('finish', function () {
           ee.emit('file', tarFile)
@@ -50,24 +65,25 @@ module.exports = function (pkgRoot) {
   }
 
   function createVM (file, callback) {
-    var startupScript = multiline(function () {/*
+    var startupScript = format(multiline(function () {/*
       #! /bin/bash
+      set -v
+      apt-get update
+      apt-get install -yq build-essential
       export NVM_DIR=/opt/nvm
       curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.29.0/install.sh | bash
       source /opt/nvm/nvm.sh
       nvm install v0
       mkdir /opt/app && cd $_
-      curl https://storage.googleapis.com/{bucketName}/{tarFilename} | tar -xz
+      curl https://storage.googleapis.com/{bucketName}/{fileName} | tar -xz
       npm install
-      npm start
-    */})
-   .replace('{bucketName}', file.bucket.name)
-   .replace('{tarFilename}', file.name)
+      npm start &
+    */}), { bucketName: file.bucket.name, fileName: file.name })
 
-    var vmName = pkg.name + '-' + Date.now()
+    var vmName = slug(pkg.name) + '-' + Date.now()
 
     var cfg = {
-      os: 'debian',
+      os: 'centos',
       http: true,
       https: true,
       metadata: {
@@ -75,7 +91,7 @@ module.exports = function (pkgRoot) {
       }
     }
 
-    gce.zone('us-central1-a').createVM(vmName, cfg, _onOperationComplete(function (err, vm) {
+    gce.zone('us-central1-a').createVM(vmName, cfg, _onOperationComplete(function (err, vm, metadata) {
       if (err) return callback(err)
       ee.emit('vm', vm)
       callback(null, vm)
@@ -83,40 +99,69 @@ module.exports = function (pkgRoot) {
   }
 
   function startVM (vm, callback) {
+    if (EE.listenerCount(ee, 'output')) {
+      logOutput(vm)
+    }
+
     vm.start(_onOperationComplete(function (err) {
       if (err) return callback(err)
 
       vm.getMetadata(function (err, metadata) {
         if (err) return callback(err)
         ee.emit('start', 'http://' + metadata.networkInterfaces[0].accessConfigs[0].natIP)
+        callback()
       })
     }))
   }
 
-  function onComplete (err, objects) {
-    if (err) return ee.emit('error', err)
+  function logOutput (vm) {
+    var outputStream = through({ encoding: 'utf8' })
+    ee.emit('output', outputStream)
 
-    tarFile.delete(function (err) {
-      if (err) ee.emit('error', err)
-      ee.removeAllListeners()
-    })
-  }
+    var outputLog = ''
 
-  function _onOperationComplete (callback) {
-    return function (err, operation, apiResponse) {
-      if (err) return callback(err)
+    var refresh = function () {
+      vm.getSerialPortOutput(function (err, output) {
+        if (err) return ee.emit('error', err)
 
-      if (arguments.length === 4) {
-        var object = operation
-        operation = apiResponse
-      }
+        var newOutput
 
-      operation.onComplete(function (err, metadata) {
-        if (object) callback(err, object, metadata)
-        else callback(err, metadata)
+        if (outputLog) {
+          newOutput = output.replace(outputLog, '')
+          outputLog += newOutput
+        } else {
+          outputLog = output
+          newOutput = output
+        }
+
+        var logLines = newOutput.split('\r\n').map(exec('trim'))
+        split(logLines, outputStream, function (streamEnded) {
+          if (!streamEnded) setTimeout(refresh, 250)
+        })
       })
     }
+
+    refresh()
   }
 
   return ee
+}
+
+// helper to wait for an operation to complete before executing the callback
+// this also supports creation callbacks, specifically `createVM`, which has an
+// extra arg with the instance object of the created VM
+function _onOperationComplete (callback) {
+  return function (err, operation, apiResponse) {
+    if (err) return callback(err)
+
+    if (arguments.length === 4) {
+      var object = operation
+      operation = apiResponse
+    }
+
+    operation.onComplete(function (err, metadata) {
+      if (object) callback(err, object, metadata)
+      else callback(err, metadata)
+    })
+  }
 }

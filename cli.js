@@ -16,6 +16,9 @@ require('./')()
   .on('vm', function (vm) {
     console.log('VM created:', vm.name)
   })
+  .on('output', function (output) {
+    output.on('data', console.log)
+  })
   .on('start', function (url) {
     console.log('Deployed successfully!', url)
   })
