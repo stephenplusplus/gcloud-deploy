@@ -19,12 +19,14 @@ var gcloudDeploy = require('gcloud-deploy')
 
 // Give it a Node.js project
 gcloudDeploy('./')
-  .on('vm', function (vm) {
-    // VM created (`vm` is a gcloud-node VM object)
-  })
-  .on('start', function (url) {
-    // App is being served at `url`
-  })
+  // A VM was created (`vm` is a gcloud-node VM object)
+  .on('vm', function (vm) {})
+
+  // App is being served at `url`
+  .on('start', function (url) {})
+
+  // raw output from the server while it initializes & starts your app
+  .pipe(process.stdout)
 ```
 
 ## npm script
@@ -88,7 +90,20 @@ The `gcloud` object above is the same as what is passed to the [gcloud-node](htt
 The directory to where the project's `package.json` can be found.
 
 #### gcloudDeploy
-- Type: `EventEmitter`
+- Type: `Stream`
+
+A stream is returned that will **not end unless you end it**. It is a constant pouring of output from the created VM using [gce-output-stream](http://gitnpm.com/gce-output-stream). To end it, just abort the process (easy for the CLI), or programmatically:
+
+```js
+gcloudDeploy()
+  .on('data', function (outputLine) {
+    if (outputLine.indexOf('node server.js') > -1) {
+      // Looks like the server started
+      // No need to poll for more output
+      this.end()
+    }
+  })
+```
 
 ##### .on('error', function (err) {})
 - Type: `Error`

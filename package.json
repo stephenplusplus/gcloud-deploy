@@ -23,17 +23,15 @@
   "dependencies": {
     "archiver": "^0.15.1",
     "async": "^1.4.2",
+    "gce-output-stream": "^0.1.0",
     "gcloud": "^0.24.0",
     "multiline": "^1.0.2",
+    "object-assign": "^4.0.1",
     "slug": "^0.9.1",
-    "split-array-stream": "^1.0.0",
     "string-format-obj": "^1.0.1",
     "through2": "^2.0.0"
   },
   "devDependencies": {
     "standard": "^5.3.1"
-  },
-  "gcloud": {
-    "projectId": "nth-circlet-705"
   }
 }

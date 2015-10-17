@@ -1,20 +1,20 @@
 'use strict'
 
 var archiver = require('archiver')
+var assign = require('object-assign')
 var async = require('async')
-var EE = require('events').EventEmitter
 var format = require('string-format-obj')
 var gcloud = require('gcloud')
 var multiline = require('multiline')
+var outputStream = require('gce-output-stream')
 var path = require('path')
-var split = require('split-array-stream')
 var slug = require('slug')
 var through = require('through2')
 
 module.exports = function (pkgRoot) {
   pkgRoot = pkgRoot || process.cwd()
 
-  var ee = new EE()
+  var deployStream = through()
 
   var pkg = require(path.join(pkgRoot, 'package.json'))
   var gcloudConfig = pkg.gcloud || {}
@@ -28,9 +28,13 @@ module.exports = function (pkgRoot) {
     uploadTar,
     createVM,
     startVM
-  ], function (err) {
-    if (err) return ee.emit('error', err)
-    ee.removeAllListeners()
+  ], function (err, vm) {
+    if (err) return deployStream.destroy(err)
+
+    outputStream(assign(gcloudConfig, { name: vm.name, zone: vm.zone.name }))
+      .on('end', deployStream.end.bind(deployStream))
+      .on('error', deployStream.destroy.bind(deployStream))
+      .pipe(deployStream)
   })
 
   function createTarStream (callback) {
@@ -47,14 +51,17 @@ module.exports = function (pkgRoot) {
 
     gcs.createBucket(bucketName, function (err) {
       if (err && err.code !== 409) return callback(err)
-      ee.emit('bucket', bucket)
+      deployStream.emit('bucket', bucket)
+      deployStream.bucket = bucket
 
       var tarFile = bucket.file(tarFilename)
 
       tarStream.pipe(tarFile.createWriteStream({ gzip: true }))
         .on('error', callback)
         .on('finish', function () {
-          ee.emit('file', tarFile)
+          deployStream.emit('file', tarFile)
+          deployStream.file = tarFile
+
           tarFile.makePublic(function (err) {
             if (err) return callback(err)
             callback(null, tarFile)
@@ -92,64 +99,31 @@ module.exports = function (pkgRoot) {
 
     gce.zone('us-central1-a').createVM(vmName, cfg, _onOperationComplete(function (err, vm, metadata) {
       if (err) return callback(err)
-      ee.emit('vm', vm)
+
+      deployStream.emit('vm', vm)
+      deployStream.vm = vm
+
       callback(null, vm)
     }))
   }
 
   function startVM (vm, callback) {
-    if (EE.listenerCount(ee, 'output')) logOutput(vm)
-
     vm.start(_onOperationComplete(function (err) {
       if (err) return callback(err)
 
       vm.getMetadata(function (err, metadata) {
         if (err) return callback(err)
-        ee.emit('start', 'http://' + metadata.networkInterfaces[0].accessConfigs[0].natIP)
-        callback()
+
+        var url = 'http://' + metadata.networkInterfaces[0].accessConfigs[0].natIP
+        deployStream.emit('start', url)
+        deployStream.url = url
+
+        callback(null, vm)
       })
     }))
   }
 
-  function logOutput (vm) {
-    var outputStream = through({ encoding: 'utf8' })
-
-    var url
-    var outputLog = ''
-
-    var refresh = function () {
-      vm.getSerialPortOutput(function (err, output) {
-        if (err) return ee.emit('error', err)
-
-        var newOutput
-
-        if (outputLog) {
-          newOutput = output.replace(outputLog, '')
-          outputLog += newOutput
-        } else {
-          outputLog = output
-          newOutput = output
-        }
-
-        var logLines = newOutput.split('\r\n').map(function (str) {
-          // put the network url in the log output and remove some of the noise
-          return str.replace(new RegExp(vm.name + '[^:]*', 'g'), '(' + url + ')').trim()
-        })
-
-        split(logLines, outputStream, function (streamEnded) {
-          if (!streamEnded) setTimeout(refresh, 250)
-        })
-      })
-    }
-
-    ee.once('start', function (_url) {
-      url = _url
-      ee.emit('output', outputStream)
-      refresh()
-    })
-  }
-
-  return ee
+  return deployStream
 }
 
 // helper to wait for an operation to complete before executing the callback
