@@ -8,13 +8,14 @@ var gcloud = require('gcloud')
 var multiline = require('multiline')
 var outputStream = require('gce-output-stream')
 var path = require('path')
+var pumpify = require('pumpify')
 var slug = require('slug')
 var through = require('through2')
 
 module.exports = function (pkgRoot) {
   pkgRoot = pkgRoot || process.cwd()
 
-  var deployStream = through()
+  var deployStream = pumpify()
 
   var pkg = require(path.join(pkgRoot, 'package.json'))
   var gcloudConfig = pkg.gcloud || {}
@@ -31,10 +32,8 @@ module.exports = function (pkgRoot) {
   ], function (err, vm) {
     if (err) return deployStream.destroy(err)
 
-    outputStream(assign(gcloudConfig, { name: vm.name, zone: vm.zone.name }))
-      .on('end', deployStream.end.bind(deployStream))
-      .on('error', deployStream.destroy.bind(deployStream))
-      .pipe(deployStream)
+    var outputCfg = assign(gcloudConfig, { name: vm.name, zone: vm.zone.name })
+    deployStream.setPipeline(outputStream(outputCfg), through())
   })
 
   function createTarStream (callback) {
