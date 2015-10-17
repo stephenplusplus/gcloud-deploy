@@ -3,7 +3,6 @@
 var archiver = require('archiver')
 var async = require('async')
 var EE = require('events').EventEmitter
-var exec = require('methmeth')
 var format = require('string-format-obj')
 var gcloud = require('gcloud')
 var multiline = require('multiline')
@@ -99,9 +98,7 @@ module.exports = function (pkgRoot) {
   }
 
   function startVM (vm, callback) {
-    if (EE.listenerCount(ee, 'output')) {
-      logOutput(vm)
-    }
+    if (EE.listenerCount(ee, 'output')) logOutput(vm)
 
     vm.start(_onOperationComplete(function (err) {
       if (err) return callback(err)
@@ -116,8 +113,8 @@ module.exports = function (pkgRoot) {
 
   function logOutput (vm) {
     var outputStream = through({ encoding: 'utf8' })
-    ee.emit('output', outputStream)
 
+    var url
     var outputLog = ''
 
     var refresh = function () {
@@ -134,14 +131,22 @@ module.exports = function (pkgRoot) {
           newOutput = output
         }
 
-        var logLines = newOutput.split('\r\n').map(exec('trim'))
+        var logLines = newOutput.split('\r\n').map(function (str) {
+          // put the network url in the log output and remove some of the noise
+          return str.replace(new RegExp(vm.name + '[^:]*', 'g'), '(' + url + ')').trim()
+        })
+
         split(logLines, outputStream, function (streamEnded) {
           if (!streamEnded) setTimeout(refresh, 250)
         })
       })
     }
 
-    refresh()
+    ee.once('start', function (_url) {
+      url = _url
+      ee.emit('output', outputStream)
+      refresh()
+    })
   }
 
   return ee
