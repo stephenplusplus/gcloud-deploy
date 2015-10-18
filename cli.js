@@ -9,7 +9,7 @@ var deployStream = require('./')()
 deployStream
   .on('error', function (err) {
     if (err.code === 403) {
-      console.error(new Error('Authentication failed. Did you provide a `keyFilename` or `credentials` object in your package.json?'))
+      console.error(new Error('Authentication failed. Did you provide a `keyFile` or `credentials` object?'))
     } else {
       console.error(err)
     }

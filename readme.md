@@ -60,7 +60,95 @@ This module...
     1. unpack the tarball
     1. run `npm start`
 
-A `package.json` is required, along with a `gcloud` object to hold configuration for this module. An example `package.json`:
+
+## Prerequisites
+
+There are only two things required to use `gcloud-deploy`:
+
+  - A Google Developers Console project ID to deploy your project to
+  - A key file that contains credentials to authenticate API requests
+
+If you haven't already, you will need to create a project in the [Google Developers Console](https://console.developers.google.com/project).
+
+For a more detailed guide, see the *"On Your Own Server"* section of [gcloud-node's Authentication document](https://googlecloudplatform.github.io/gcloud-node/#/authentication).
+
+The APIs that **must be enabled** are:
+
+  - **Google Compute Engine**
+  - **Google Cloud Storage**
+
+The guide linked above will also guide you through creating a JSON keyfile.
+
+
+## Configuration
+
+This library tries to provide sane defaults for your VM. As explained in the `Prerequisites` section, all that is required are two properties:
+
+  - `projectId` - The project to deploy the VM to.
+  - `keyFile` - A path to a JSON, PEM, or P12 key file.
+
+If you need further customization beyond the defaults, we accept configuration in a few different ways, which are listed below with examples.
+
+These two links will be important:
+
+  - [Connection configuration](https://googlecloudplatform.github.io/gcloud-node/#/docs/v0.24.0?method=gcloud)
+  - [VM configuration](https://googlecloudplatform.github.io/gcloud-node/#/docs/v0.24.0/compute/zone?method=createVM)
+
+<a name="config"></a>
+### Configuration Object
+
+When running programmatically, this may be the simplest, most consistent option. You can provide explicit configuration with a `config` object.
+
+```js
+var config = {
+  gcloud: {
+    // Same as the `config` object documented here:
+    // https://googlecloudplatform.github.io/gcloud-node/#/docs/v0.24.0?method=gcloud
+  },
+
+  vm: {
+    // Same as the `config` object documented here:
+    // https://googlecloudplatform.github.io/gcloud-node/#/docs/v0.24.0/compute/zone?method=createVM
+  }
+}
+
+gcloudDeploy(config)
+```
+
+Additionally, you can provide a `config.vm.zone` string to specify the zone to create your VM in.
+
+#### Defaults
+
+See how the default configuration is trumped by the [package.json's `gcloudDeploy`](#packageJson) object, then finally the [`config` object](#config).
+
+```js
+var defaults = {
+  root: process.cwd(),
+  nodeVersion: '0', // the latest Node.js version 0.x release
+
+  gcloud: {
+    projectId: process.env.GCLOUD_PROJECT_ID,
+    keyFile: process.env.GCLOUD_KEY_FILE
+  },
+
+  vm: {
+    zone: process.env.GCLOUD_ZONE || 'us-central1-a',
+    name: slugify(packageJson.name) + '-' + Date.now(),
+    os: 'centos',
+    http: true,
+    https: true
+  }
+}
+
+deepExtend(defaults, packageJson.gcloudDeploy, config)
+```
+
+<a name="packageJson"></a>
+### package.json
+
+You may also create `gcloud` and `vm` properties inside of the deployed project's `package.json` in the same format as described above in [Configuration Object](#config).
+
+An example `package.json`:
 
 ```json
 {
@@ -69,21 +157,51 @@ A `package.json` is required, along with a `gcloud` object to hold configuration
   "dependencies": {
     "express": "^4.13.3"
   },
-  "gcloud": {
-    "projectId": "grape-spaceship-123",
-    "keyFilename": "key.json"
+  "gcloudDeploy": {
+    "nodeVersion": 4,
+    "gcloud": {
+      "projectId": "grape-spaceship-123",
+      "keyFile": "~/key.json"
+    },
+    "vm": {
+      "os": "ubuntu",
+      "zone": "us-central1-b"
+    }
   }
 }
 ```
 
-The `gcloud` object above is the same as what is passed to the [gcloud-node](http://gitnpm.com/gcloud) library. See the [documentation for `config`](https://googlecloudplatform.github.io/gcloud-node/#/docs/v0.23.0?method=gcloud) to show what properties are expected.
+### Environment Variables
+
+  - **GCLOUD_PROJECT_ID** (required) - maps to `config.projectId`
+  - **GCLOUD_KEY_FILE** - maps to `config.keyFile`
+  - GCLOUD_ZONE - maps to `config.vm.zone`
+
+With just `GCLOUD_PROJECT_ID` and `GCLOUD_KEYFILE`, you can ignore all of the other configuration options described above.
+
+However, you are still free to provide further customization. Any values specified with the other techniques will take precedence over the environment variables.
 
 
 ## API
 
-### `gcloudDeploy = require('gcloud-deploy')(projectRoot)`
+#### `gcloudDeploy = require('gcloud-deploy')([config])`
 
-#### projectRoot
+#### config
+- Type: `String|Object`
+- *Optional*
+
+If a string, it is treated as the package root (`config.root`); the directory to where the project's `package.json` can be found.
+
+If an object, See [**Configuration Object**](#config).
+
+##### config.nodeVersion
+- Type: `String`
+- *Optional*
+- Default: `0`
+
+The version of Node.js to run on the deployed VM via [nvm](https://github.com/creationix/nvm). To install the latest stable version of Node.js version 4, use `config.nodeVersion = 4`.
+
+##### config.root
 - Type: `String`
 - Default: `process.cwd()`
 
@@ -141,8 +259,6 @@ The URL to your project. If your app listens on port 80, you can get right to it
 
 Desperately seeking help with the following tasks:
 
-  - Customization of Node.js version to run
-  - Customization of VMs to create
   - Allow VMs to be re-used
   - Modularize the startup script (maybe use [this one?](https://github.com/GoogleCloudPlatform/nodejs-getting-started/blob/master/gce/startup-script.sh))
   - Don't make the tarball public
