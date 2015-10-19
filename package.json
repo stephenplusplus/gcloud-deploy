@@ -19,6 +19,7 @@
     "instance"
   ],
   "author": "Stephen Sawchuk <sawchuk@gmail.com>",
+  "repository": "stephenplusplus/gcloud-deploy",
   "license": "MIT",
   "dependencies": {
     "archiver": "^0.15.1",
