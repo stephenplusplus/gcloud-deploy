@@ -1,7 +1,20 @@
 # gcloud-deploy
 > Quickly deploy a Node.js project on Google Compute Engine
 
-## CLI
+## Getting Started
+
+  - [How it works](#how-it-works)
+  - [Prerequisites](#prerequisites)
+  - [Configuration](#configuration)
+  - [API](#api)
+  - [Contributions](#contributions)
+
+
+### Quick Start
+
+See [gcloud-deploy Boilerplate](https://github.com/stephenplusplus/gcloud-deploy-boilerplate).
+
+### CLI
 ```sh
 $ npm install -g gcloud-deploy
 $ gcloud-deploy
@@ -10,7 +23,7 @@ VM created: my-app-1444765984324
 Deployed successfully! http://146.148.48.123
 ```
 
-## Programmatically
+### Programmatically
 ```sh
 $ npm install --save gcloud-deploy
 ```
@@ -29,7 +42,7 @@ gcloudDeploy('./')
   .pipe(process.stdout)
 ```
 
-## npm script
+### npm script
 ```sh
 $ npm install --save-dev gcloud-deploy
 ```
@@ -171,7 +184,7 @@ An example `package.json`:
 }
 ```
 
-### Environment Variables
+### Environment variables
 
   - **GCLOUD_PROJECT_ID** (required) - maps to `config.projectId`
   - **GCLOUD_KEY_FILE** - maps to `config.keyFile`
