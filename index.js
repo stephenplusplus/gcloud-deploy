@@ -55,6 +55,7 @@ module.exports = function (config) {
 
   var gcloudConfig = config.gcloud
   var pkgRoot = config.root
+  var uniqueId = slug(pkg.name) + '-' + Date.now()
 
   var gcloudInstance = gcloud(gcloudConfig)
   var gcs = gcloudInstance.storage()
@@ -72,6 +73,9 @@ module.exports = function (config) {
 
     var outputCfg = assign({}, gcloudConfig, { name: vm.name, zone: vm.zone.name })
     deployStream.setPipeline(outputStream(outputCfg), through())
+
+    // sniff the output stream for when it's safe to delete the tar file
+    deleteTarFile(outputStream(outputCfg))
   })
 
   function createTarStream (callback) {
@@ -84,14 +88,13 @@ module.exports = function (config) {
   function uploadTar (tarStream, callback) {
     var bucketName = gcloudConfig.projectId + '-gcloud-deploy-tars'
     var bucket = gcs.bucket(bucketName)
-    var tarFilename = Date.now() + '.tar'
 
     gcs.createBucket(bucketName, function (err) {
       if (err && err.code !== 409) return callback(err)
       deployStream.emit('bucket', bucket)
       deployStream.bucket = bucket
 
-      var tarFile = bucket.file(tarFilename)
+      var tarFile = bucket.file(uniqueId + '.tar')
 
       tarStream.pipe(tarFile.createWriteStream({ gzip: true }))
         .on('error', callback)
@@ -108,22 +111,75 @@ module.exports = function (config) {
   }
 
   function createVM (file, callback) {
-    var startupScript = format(multiline(function () {/*
+    var vmCfg = config.vm
+
+    // most node apps will have dependencies that requires compiling. without
+    // these build tools, the libraries might not install
+    var installBuildEssentialsCommands = {
+      debian: multiline.stripIndent(function () {/*
+        apt-get update
+        apt-get install -yq build-essential
+      */}),
+
+      fedora: multiline.stripIndent(function () {/*
+        yum -y groupinstall "Development Tools" "Development Libraries"
+      */}),
+
+      suse: multiline.stripIndent(function () {/*
+        sudo zypper --non-interactive addrepo http://download.opensuse.org/distribution/13.2/repo/oss/ repo
+        sudo zypper --non-interactive --no-gpg-checks rm product:SLES-12-0.x86_64 cpp48-4.8.3+r212056-11.2.x86_64 suse-build-key-12.0-4.1.noarch
+        sudo zypper --non-interactive --no-gpg-checks install --auto-agree-with-licenses --type pattern devel_basis
+      */})
+    }
+
+    var installBuildEssentialsCommand
+
+    switch (vmCfg.os) {
+      case 'centos':
+      case 'centos-cloud':
+      case 'redhat':
+      case 'rhel':
+      case 'rhel-cloud':
+        installBuildEssentialsCommand = installBuildEssentialsCommands.fedora
+        break
+
+      case 'suse':
+      case 'suse-cloud':
+      case 'opensuse':
+      case 'opensuse-cloud':
+        installBuildEssentialsCommand = installBuildEssentialsCommands.suse
+        break
+
+      case 'debian':
+      case 'debian-cloud':
+      case 'ubuntu':
+      case 'ubuntu-cloud':
+      case 'ubuntu-os-cloud':
+      default:
+        installBuildEssentialsCommand = installBuildEssentialsCommands.debian
+        break
+    }
+
+    var startupScript = format(multiline.stripIndent(function () {/*
       #! /bin/bash
       set -v
-      apt-get update
-      apt-get install -yq build-essential
+      {installBuildEssentialsCommand}
       export NVM_DIR=/usr/local/nvm
+      export HOME=/root
+      export GCLOUD_VM=true
       curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.29.0/install.sh | bash
       source /usr/local/nvm/nvm.sh
       nvm install v{version}
       mkdir /opt/app && cd $_
       curl https://storage.googleapis.com/{bucketName}/{fileName} | tar -xz
-      npm install
+      npm install --only-production
       npm start &
-    */}), { bucketName: file.bucket.name, fileName: file.name, version: config.nodeVersion })
-
-    var vmCfg = config.vm
+    */}), {
+      installBuildEssentialsCommand: installBuildEssentialsCommand,
+      bucketName: file.bucket.name,
+      fileName: file.name,
+      version: config.nodeVersion
+    })
 
     vmCfg.metadata = vmCfg.metadata || {}
     vmCfg.metadata.items = vmCfg.metadata.items || []
@@ -148,8 +204,7 @@ module.exports = function (config) {
       })
     } else {
       // create a VM
-      var vmName = slug(pkg.name) + '-' + Date.now()
-      zone.createVM(vmName, vmCfg, _onOperationComplete(function (err, vm) {
+      zone.createVM(uniqueId, vmCfg, _onOperationComplete(function (err, vm) {
         if (err) return callback(err)
         onVMReady(vm)
       }))
@@ -169,6 +224,32 @@ module.exports = function (config) {
 
         callback(null, vm)
       })
+    }))
+  }
+
+  function deleteTarFile (outputStream) {
+    var tarFile = deployStream.file
+    var startupScriptStarted = false
+
+    outputStream.pipe(through(function (outputLine, enc, next) {
+      outputLine = outputLine.toString('utf8')
+
+      startupScriptStarted = startupScriptStarted || outputLine.indexOf('Starting Google Compute Engine user scripts') > -1
+
+      // if npm install is running, the file has already been downloaded
+      if (startupScriptStarted && outputLine.indexOf('npm install') > -1) {
+        outputStream.end()
+
+        tarFile.delete(function (err, apiResponse) {
+          if (err) {
+            var error = new Error('The tar file (' + tarFile.name + ') could not be deleted')
+            error.response = apiResponse
+            deployStream.destroy(error)
+          }
+        })
+      } else {
+        next()
+      }
     }))
   }
 
