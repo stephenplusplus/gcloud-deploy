@@ -55,7 +55,7 @@ module.exports = function (config) {
 
   var gcloudConfig = config.gcloud
   var pkgRoot = config.root
-  var uniqueId = slug(pkg.name) + '-' + Date.now()
+  var uniqueId = slug(pkg.name, { lower: true }) + '-' + Date.now()
 
   var gcloudInstance = gcloud(gcloudConfig)
   var gcs = gcloudInstance.storage()
