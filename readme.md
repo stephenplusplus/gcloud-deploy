@@ -210,15 +210,20 @@ If an object, See [**Configuration Object**](#config).
 ##### config.nodeVersion
 - Type: `String`
 - *Optional*
-- Default: `0`
+- Default: `stable`
 
-The version of Node.js to run on the deployed VM via [nvm](https://github.com/creationix/nvm). To install the latest stable version of Node.js version 4, use `config.nodeVersion = 4`.
+The version of Node.js to run on the deployed VM via [nvm](https://github.com/creationix/nvm). If you need a specific version, provide that here, e.g. `0.12.7`.
 
 ##### config.root
 - Type: `String`
 - Default: `process.cwd()`
 
 The directory to where the project's `package.json` can be found.
+
+##### config.startupScript
+- Type: `String`
+
+Define a custom start up script that will execute when your VM is launched and restarted.
 
 #### gcloudDeploy
 - Type: `Stream`

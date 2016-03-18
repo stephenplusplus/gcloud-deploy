@@ -15,7 +15,7 @@ var through = require('through2')
 var resolveConfig = function (pkg, explicitConfig) {
   var config = {
     root: process.cwd(),
-    nodeVersion: '0',
+    nodeVersion: 'stable',
 
     gcloud: {
       projectId: process.env.GCLOUD_PROJECT_ID,
@@ -72,6 +72,11 @@ module.exports = function (config) {
     if (err) return deployStream.destroy(err)
 
     var outputCfg = assign({}, gcloudConfig, { name: vm.name, zone: vm.zone.name })
+
+    outputCfg.authConfig = {}
+    if (gcloudConfig.credentials) outputCfg.authConfig.credentials = gcloudConfig.credentials
+    if (gcloudConfig.keyFilename) outputCfg.authConfig.keyFile = gcloudConfig.keyFilename
+
     deployStream.setPipeline(outputStream(outputCfg), through())
 
     // sniff the output stream for when it's safe to delete the tar file
@@ -118,7 +123,7 @@ module.exports = function (config) {
     var installBuildEssentialsCommands = {
       debian: multiline.stripIndent(function () {/*
         apt-get update
-        apt-get install -yq build-essential
+        apt-get install -yq build-essential git-core
       */}),
 
       fedora: multiline.stripIndent(function () {/*
@@ -164,18 +169,23 @@ module.exports = function (config) {
       #! /bin/bash
       set -v
       {installBuildEssentialsCommand}
+      {customStartupScript}
       export NVM_DIR=/usr/local/nvm
       export HOME=/root
       export GCLOUD_VM=true
       curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.29.0/install.sh | bash
       source /usr/local/nvm/nvm.sh
       nvm install v{version}
-      mkdir /opt/app && cd $_
+      if [ ! -d /opt/app ]; then
+        mkdir /opt/app
+      fi
+      cd /opt/app
       curl https://storage.googleapis.com/{bucketName}/{fileName} | tar -xz
       npm install --only-production
       npm start &
     */}), {
       installBuildEssentialsCommand: installBuildEssentialsCommand,
+      customStartupScript: config.startupScript || '',
       bucketName: file.bucket.name,
       fileName: file.name,
       version: config.nodeVersion
@@ -194,17 +204,20 @@ module.exports = function (config) {
       callback(null, vm)
     }
 
+    var vm = zone.vm(vmCfg.name || uniqueId)
+
     if (vmCfg.name) {
       // re-use an existing VM
       // @tood implement `setMetadata` in gcloud-node#vm
-      var vm = zone.vm(vmCfg.name)
-      vm.setMetadata(function (err) {
+      vm.setMetadata({
+        'startup-script': startupScript
+      }, _onOperationComplete(function (err) {
         if (err) return callback(err)
         onVMReady(vm)
-      })
+      }))
     } else {
       // create a VM
-      zone.createVM(uniqueId, vmCfg, _onOperationComplete(function (err, vm) {
+      vm.create(vmCfg, _onOperationComplete(function (err) {
         if (err) return callback(err)
         onVMReady(vm)
       }))
@@ -212,18 +225,23 @@ module.exports = function (config) {
   }
 
   function startVM (vm, callback) {
-    vm.start(_onOperationComplete(function (err) {
+    // if re-using a VM, we have to stop & start to apply the new startup script
+    vm.stop(_onOperationComplete(function (err) {
       if (err) return callback(err)
 
-      vm.getMetadata(function (err, metadata) {
+      vm.start(_onOperationComplete(function (err) {
         if (err) return callback(err)
 
-        var url = 'http://' + metadata.networkInterfaces[0].accessConfigs[0].natIP
-        deployStream.emit('start', url)
-        deployStream.url = url
+        vm.getMetadata(function (err, metadata) {
+          if (err) return callback(err)
 
-        callback(null, vm)
-      })
+          var url = 'http://' + metadata.networkInterfaces[0].accessConfigs[0].natIP
+          deployStream.emit('start', url)
+          deployStream.url = url
+
+          callback(null, vm)
+        })
+      }))
     }))
   }
 
@@ -268,9 +286,8 @@ function _onOperationComplete (callback) {
       operation = apiResponse
     }
 
-    operation.onComplete(function (err, metadata) {
-      if (object) callback(err, object, metadata)
-      else callback(err, metadata)
-    })
+    operation
+      .on('error', callback)
+      .on('complete', callback.bind(null, null))
   }
 }

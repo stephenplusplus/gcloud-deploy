@@ -18,7 +18,7 @@ deployStream
     console.log('Backup created:', file.bucket.name + '/' + file.name)
   })
   .on('vm', function (vm) {
-    console.log('VM created:', vm.name)
+    console.log('VM ready:', vm.name)
   })
   .on('start', function (url) {
     console.log('Deployed successfully!', url)
