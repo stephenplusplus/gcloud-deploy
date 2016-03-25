@@ -69,7 +69,7 @@ This module...
   1. makes a tarball of your project
   1. uploads it to a bucket
   1. creates a Compute Engine instance with a startup script to:
-    1. install Node.js v0.12
+    1. install the latest stable Node.js (customizable)
     1. unpack the tarball
     1. run `npm start`
 
@@ -137,7 +137,7 @@ See how the default configuration is trumped by the [package.json's `gcloudDeplo
 ```js
 var defaults = {
   root: process.cwd(),
-  nodeVersion: '0', // the latest Node.js version 0.x release
+  nodeVersion: 'stable', // the latest Node.js stable release
 
   gcloud: {
     projectId: process.env.GCLOUD_PROJECT_ID,
@@ -188,7 +188,7 @@ An example `package.json`:
 
   - **GCLOUD_PROJECT_ID** (required) - maps to `config.projectId`
   - **GCLOUD_KEY_FILE** - maps to `config.keyFile`
-  - GCLOUD_ZONE - maps to `config.vm.zone`
+  - **GCLOUD_ZONE** - maps to `config.vm.zone`
 
 With just `GCLOUD_PROJECT_ID` and `GCLOUD_KEYFILE`, you can ignore all of the other configuration options described above.
 
@@ -277,7 +277,6 @@ The URL to your project. If your app listens on port 80, you can get right to it
 
 Desperately seeking help with the following tasks:
 
-  - Allow VMs to be re-used
   - Modularize the startup script (maybe use [this one?](https://github.com/GoogleCloudPlatform/nodejs-getting-started/blob/master/gce/startup-script.sh))
   - Don't make the tarball public
   - Expand CLI to:
