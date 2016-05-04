@@ -94,23 +94,25 @@ module.exports = function (config) {
     var bucketName = gcloudConfig.projectId + '-gcloud-deploy-tars'
     var bucket = gcs.bucket(bucketName)
 
-    gcs.createBucket(bucketName, function (err) {
-      if (err && err.code !== 409) return callback(err)
+    bucket.get({ autoCreate: true }, function (err) {
+      if (err) return callback(err)
+
       deployStream.emit('bucket', bucket)
       deployStream.bucket = bucket
 
       var tarFile = bucket.file(uniqueId + '.tar')
+      var writeStream = tarFile.createWriteStream({
+        gzip: true,
+        public: true
+      })
 
-      tarStream.pipe(tarFile.createWriteStream({ gzip: true }))
+      tarStream.pipe(writeStream)
         .on('error', callback)
         .on('finish', function () {
           deployStream.emit('file', tarFile)
           deployStream.file = tarFile
 
-          tarFile.makePublic(function (err) {
-            if (err) return callback(err)
-            callback(null, tarFile)
-          })
+          callback(null, tarFile)
         })
     })
   }
@@ -173,9 +175,9 @@ module.exports = function (config) {
       export NVM_DIR=/usr/local/nvm
       export HOME=/root
       export GCLOUD_VM=true
-      curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.29.0/install.sh | bash
+      curl -o- https://raw.githubusercontent.com/creationix/nvm/v0.31.0/install.sh | bash
       source /usr/local/nvm/nvm.sh
-      nvm install v{version}
+      nvm install {version}
       if [ ! -d /opt/app ]; then
         mkdir /opt/app
       fi
@@ -282,7 +284,6 @@ function _onOperationComplete (callback) {
     if (err) return callback(err)
 
     if (arguments.length === 4) {
-      var object = operation
       operation = apiResponse
     }
 
