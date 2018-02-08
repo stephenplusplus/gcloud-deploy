@@ -4,13 +4,15 @@ var archiver = require('archiver')
 var assign = require('deep-assign')
 var async = require('async')
 var format = require('string-format-obj')
-var gcloud = require('gcloud')
 var multiline = require('multiline')
 var outputStream = require('gce-output-stream')
 var path = require('path')
 var pumpify = require('pumpify')
 var slug = require('slug')
 var through = require('through2')
+
+var Compute = require('@google-cloud/compute')
+var Storage = require('@google-cloud/storage')
 
 var resolveConfig = function (pkg, explicitConfig) {
   var config = {
@@ -57,9 +59,8 @@ module.exports = function (config) {
   var pkgRoot = config.root
   var uniqueId = slug(pkg.name, { lower: true }) + '-' + Date.now()
 
-  var gcloudInstance = gcloud(gcloudConfig)
-  var gcs = gcloudInstance.storage()
-  var gce = gcloudInstance.compute()
+  var gce = new Compute(gcloudConfig)
+  var gcs = new Storage(gcloudConfig)
 
   var deployStream = pumpify()
 
